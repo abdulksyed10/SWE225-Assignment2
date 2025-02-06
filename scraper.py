@@ -1,15 +1,60 @@
 import re
-from urllib.parse import urlparse
-from urllib.parse import urljoin  # Import urljoin to handle relative links
-
-# make sure to pip install lxml within the project directory
+import json
+from urllib.parse import urlparse, urljoin, urldefrag
 from lxml import html
+from collections import defaultdict
 
+
+unique_urls_file = "unique_urls.txt"
+page_word_count_file = "page_word_count.json"
+all_words_file = "all_words.txt"
+subdomains_and_pages_file = "subdomain_and_page_count.json"
+
+unique_urls = set()
+page_word_counts = {}
+subdomains = defaultdict(set)
 
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    try:
+        # Returning empty list of an status code is not 200
+        if resp.status != 200:
+            return []
+        
+        # Removing url fragments
+        url, _ = urldefrag(url)
+        if url in unique_urls:
+            return []
+        unique_urls.add(url) # adding unique links to the set
+
+        # HTML content parsing using lxml
+        tree = html.fromstring(resp.raw_response.content)
+
+        # Extracting just words
+        for element in tree.xpath("//script | //style | //noscript"):
+            element.getparent().remove(element)
+        
+        text = " ".join(tree.xpath("//body//text()"))
+        words = re.findall(r"\b[A-Za-z]{2,}\b", text)
+
+        # Getting the page count for the longest page in term so number of words (question 2)
+        page_word_counts[url] = len(words)
+
+        # Appending all words to all_words.txt to store words for processing in question 3
+        with open(all_words_file, "a", encoding="utf-8") as f:
+            f.write(" ".join(words) + " ")
+        
+        # Keeping track of the subdomains
+        parsed_url = urlparse(url)
+        if parsed_url.netloc.endswith("ics.uci.edu"):
+            subdomains[parsed_url.netloc].add(url)
+        
+        links = extract_next_links(url, resp)
+        return [link for link in links if is_valid(link)]
+
+    except Exception as e:
+        print(f"Error while running scrapper function: ", e)
+        return []
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -21,31 +66,20 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-
-
-    # making sure to only grab links that are valid and have content
     try:
-        if resp.status != 200 or not resp.raw_response:
-            return []  # Skip if the response is invalid
-
+        links = set()
         tree = html.fromstring(resp.raw_response.content)
 
-        # Getting any links that are in anchor tags
-        links = []
-        for href in tree.xpath('//a/@href'):
-            full_url = urljoin(url, href).split("#")[0]  # Convert relative links and remove fragments
-            if full_url not in links:
-                links.append(full_url)
+        for link in tree.xpath("//a/@href"):
+            full_url, _ = urldefrag(urljoin(url, link))
+            links.add(full_url)
+        
+        return list(links)
 
-        # getting the list of links we crawled. Implement some logic to use for our report
-        return links
-
-    # Just some error handling if link is invalid. Could add to display the exact URL that was invalid
     except Exception as e:
-        print(f"Error while extracting links")
+        print(f"Error while extracting links: ", e)
         return []
 
-# Added some logic (see *) so that the crawler only crawls within the allowed UCI/ICS domains.
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
@@ -55,11 +89,15 @@ def is_valid(url):
         if parsed.scheme not in set(["http", "https"]):
             return False
         
-        #(*) Only crawls the below domains
-        domains_allowed = {"ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu", "today.uci.edu"}
-        if parsed.netloc not in domains_allowed:
+        # Only these are the allowed domains
+        allowed_domains = {"ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"}
+        if not parsed.netloc.endswith(tuple(allowed_domains)):
             return False
         
+        # Only for the today.uci.edu/department/information_computer_sciences/* (we are goig to ignore this path, prof. responded to a student on Ed Discussion as said to ignore it)
+        # if not parsed.netloc == "today.uci.edu" and parsed.path.startswith("/department/information_computer_sciences/"):
+        #     return False
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -73,3 +111,21 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+def save_data():
+    with open(unique_urls_file, "w", encoding="utf-8") as f:
+        for url in unique_urls:
+            f.write(url + "\n")
+    
+    with open(page_word_count_file, "w", encoding="utf-8") as f:
+        json.dump(page_word_counts, f, indent=4)
+    
+    subdomain_counts = {subdomain: len(urls) for subdomain, urls in sorted(subdomains.items())}
+    with open(subdomains_and_pages_file, "w", encoding="utf-8") as f:
+        json.dump(subdomain_counts, f, indent=4)
+    
+    print("\nData saved successfully!")
+    print(f"- Unique URLs saved to `{unique_urls_file}` (TXT)")
+    print(f"- Page word counts saved to `{page_word_count_file}` (JSON)")
+    print(f"- Words saved to `{all_words_file}` (TXT)")
+    print(f"- Subdomains saved to `{subdomains_and_pages_file}` (JSON)")

@@ -5,6 +5,7 @@ from utils.download import download
 from utils import get_logger
 import scraper
 import time
+from scraper import save_data
 
 
 class Worker(Thread):
@@ -32,3 +33,8 @@ class Worker(Thread):
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)
             time.sleep(self.config.time_delay)
+        
+        # Saving the data that I created in scraper, we can just print the data, but it would be better to save it in a file
+        self.logger.info("Crawling finished. Saving data...")
+        save_data()
+        self.logger.info("Data saved successfully!")
