@@ -1,7 +1,7 @@
+import html
 import re
 import json
 from urllib.parse import urlparse, urljoin, urldefrag
-from lxml import html
 from collections import defaultdict
 
 
