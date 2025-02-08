@@ -3,6 +3,8 @@ import os
 from urllib.parse import urlparse, urljoin, urldefrag
 from bs4 import BeautifulSoup
 from collections import defaultdict, Counter
+from configparser import ConfigParser
+from utils.config import Config
 
 # File paths
 STOPWORDS_FILE = "stopwords.txt"
@@ -24,6 +26,17 @@ def load_stopwords():
     return stopwords
 
 STOPWORDS = load_stopwords()
+
+def get_allowed_domains():
+    """Extracts allowed domains from SEEDURL in config.ini."""
+    config_parser = ConfigParser()
+    config_parser.read("config.ini")
+    config = Config(config_parser)
+
+    # Extract domains from SEEDURL
+    return {urlparse(seed_url).netloc for seed_url in config.seed_urls}
+
+ALLOWED_DOMAINS = get_allowed_domains()
 
 def scraper(url, resp):
     """Processes the page, extracts text, filters valid URLs, and tracks statistics."""
@@ -86,23 +99,26 @@ def extract_next_links(url, soup):
         return []
 
 def is_valid(url):
-    """Ensures URL is within allowed domains and not a file type (e.g., PDF, images)."""
+    """Ensures URL is within allowed domains and not a restricted file type."""
     try:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             return False
 
-        # Allow only specified domains
-        allowed_domains = {"ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"}
-        if parsed.netloc not in allowed_domains and not parsed.netloc.endswith("ics.uci.edu"):
+        # Only allow URLs within the configured domains
+        if parsed.netloc not in ALLOWED_DOMAINS and not parsed.netloc.endswith(tuple(ALLOWED_DOMAINS)):
             return False
 
         # Ignore non-text file types
-        return not re.search(
-            r"\.(css|js|bmp|gif|jpe?g|ico|png|tiff?|mp2|mp3|mp4|wav|avi|mov|mpeg|pdf|"
-            r"doc|docx|xls|xlsx|zip|rar|gz|exe|tar|psd|dll|iso|ppt|pptx|txt|dat|cnf|xml)$",
-            parsed.path.lower()
-        )
+        return not re.match(
+            r".*\.(css|js|bmp|gif|jpe?g|ico"
+            + r"|png|tiff?|mid|mp2|mp3|mp4"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
+            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
+            + r"|epub|dll|cnf|tgz|sha1"
+            + r"|thmx|mso|arff|rtf|jar|csv"
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
 
     except TypeError:
         print(f"TypeError for {parsed}")
