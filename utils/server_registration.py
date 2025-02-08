@@ -27,14 +27,14 @@ def get_cache_server(config, restart):
 
     try:
         if __name__ == "__main__":
-            print(f"🔍 Attempting to connect to cache server at {config.host}:{config.port}")
+            print(f"Attempting to connect to cache server at {config.host}:{config.port}")
             init_node = Node(init, Types=[Register], dataframe=(config.host, config.port))
             cache_server = init_node.start(config.user_agent, restart or not os.path.exists(config.save_file))
 
             if cache_server is None:
-                print("❌ ERROR: Cache server returned None. Check server availability.")
+                print("ERROR: Cache server returned None. Check server availability.")
             return cache_server
     except Exception as e:
-        print(f"🔥 Exception in get_cache_server(): {e}")
+        print(f"Exception in get_cache_server(): {e}")
     
     return None

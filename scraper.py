@@ -1,7 +1,7 @@
 import re
 import os
 from urllib.parse import urlparse, urljoin, urldefrag
-from bs4 import BeautifulSoup
+from lxml import html
 from collections import defaultdict, Counter
 from configparser import ConfigParser
 from utils.config import Config
@@ -53,15 +53,15 @@ def scraper(url, resp):
             return []
         unique_urls.add(url)  # Store unique URL
 
-        # Parse HTML content using BeautifulSoup
-        soup = BeautifulSoup(resp.raw_response.content, "html.parser")
+        # Parse HTML content using lxml
+        tree = html.fromstring(resp.raw_response.content)
 
-        # Remove scripts, styles, and noscript content
-        for script in soup(["script", "style", "noscript"]):  
-            script.extract()
+        # Remove script, style, and noscript elements
+        for element in tree.xpath("//script | //style | //noscript"):
+            element.getparent().remove(element)
 
-        # Extract visible text
-        text = soup.get_text(separator=" ")
+        # Extract text content
+        text = " ".join(tree.xpath("//body//text()"))
         words = re.findall(r"\b[A-Za-z]{2,}\b", text.lower())  # Tokenize words
 
         # Filter out stopwords
@@ -77,19 +77,19 @@ def scraper(url, resp):
             subdomains[parsed_url.netloc].add(url)
 
         # Extract valid links from page
-        links = extract_next_links(url, soup)
+        links = extract_next_links(url, tree)
         return [link for link in links if is_valid(link)]
 
     except Exception as e:
         print(f"Error in scraper: {e}")
         return []
 
-def extract_next_links(url, soup):
-    """Extracts and normalizes links from a web page using BeautifulSoup."""
+def extract_next_links(url, tree):
+    """Extracts and normalizes links from a web page using lxml."""
     try:
         links = set()
-        for link in soup.find_all("a", href=True):
-            full_url, _ = urldefrag(urljoin(url, link["href"]))  # Normalize and remove fragments
+        for link in tree.xpath("//a/@href"):
+            full_url, _ = urldefrag(urljoin(url, link))  # Normalize and remove fragments
             links.add(full_url)
 
         return list(links)
