@@ -85,7 +85,15 @@ def scraper(url, resp):
         return []
 
 def extract_next_links(url, tree):
-    """Extracts and normalizes links from a web page using lxml."""
+    # Implementation required.
+    # url: the URL that was used to get the page
+    # resp.url: the actual url of the page
+    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
+    # resp.error: when status is not 200, you can check the error here, if needed.
+    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
+    #         resp.raw_response.url: the url, again
+    #         resp.raw_response.content: the content of the page!
+    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     try:
         links = set()
         for link in tree.xpath("//a/@href"):
@@ -99,7 +107,9 @@ def extract_next_links(url, tree):
         return []
 
 def is_valid(url):
-    """Ensures URL is within allowed domains and not a restricted file type."""
+    # Decide whether to crawl this url or not. 
+    # If you decide to crawl it, return True; otherwise return False.
+    # There are already some conditions that return False.
     try:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
