@@ -40,9 +40,13 @@ ALLOWED_DOMAINS = get_allowed_domains()
 
 def scraper(url, resp):
     """Processes the page, extracts text, filters valid URLs, and tracks statistics."""
+    
+    print(f"🔍 Scraping: {url}")  # Debugging output
+
     try:
         # Ignore responses with non-200 status or empty content
         if resp.status != 200 or not resp.raw_response or not resp.raw_response.content:
+            print(f"❌ Skipping {url} (Status: {resp.status})")
             return []
 
         # Remove URL fragment (e.g., #section1)
@@ -50,11 +54,13 @@ def scraper(url, resp):
 
         # Ignore duplicate URLs (same URL different fragment)
         if url in unique_urls:
+            print(f"🔁 URL already processed: {url}")
             return []
         unique_urls.add(url)  # Store unique URL
 
         # Parse HTML content using lxml
         tree = html.fromstring(resp.raw_response.content)
+        print("✅ Successfully parsed HTML content.")
 
         # Remove script, style, and noscript elements
         for element in tree.xpath("//script | //style | //noscript"):
@@ -78,22 +84,17 @@ def scraper(url, resp):
 
         # Extract valid links from page
         links = extract_next_links(url, tree)
-        return [link for link in links if is_valid(link)]
+        valid_links = [link for link in links if is_valid(link)]
+        
+        print(f"🔗 Extracted {len(valid_links)} valid links from {url}")
+        return valid_links
 
     except Exception as e:
-        print(f"Error in scraper: {e}")
+        print(f"🚨 ERROR in scraper for {url}: {e}")
         return []
 
 def extract_next_links(url, tree):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    """Extracts and normalizes links from a web page."""
     try:
         links = set()
         for link in tree.xpath("//a/@href"):
@@ -103,13 +104,11 @@ def extract_next_links(url, tree):
         return list(links)
 
     except Exception as e:
-        print(f"Error extracting links: {e}")
+        print(f"🚨 ERROR extracting links from {url}: {e}")
         return []
 
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
-    # If you decide to crawl it, return True; otherwise return False.
-    # There are already some conditions that return False.
+    """Ensures URL is within allowed domains and not a restricted file type."""
     try:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
@@ -120,7 +119,7 @@ def is_valid(url):
             return False
 
         # Ignore non-text file types
-        return not re.match(
+        return not re.search(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -131,11 +130,14 @@ def is_valid(url):
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
 
     except TypeError:
-        print(f"TypeError for {parsed}")
-        raise
+        print(f"🚨 TypeError while validating URL: {url}")
+        return False
 
 def save_data():
     """Saves all crawl results in report.txt."""
+    
+    print("\n📦 Saving crawl data...")
+
     # Find longest page
     longest_page = max(page_word_counts, key=page_word_counts.get, default=None)
     longest_page_info = {"url": longest_page, "word_count": page_word_counts.get(longest_page, 0)}
@@ -167,6 +169,5 @@ def save_data():
         for subdomain, count in subdomain_counts.items():
             f.write(f"   {subdomain}, {count}\n")
 
-    # Print summary
-    print("\nCrawl Data Saved Successfully!")
+    print("\n✅ Crawl Data Saved Successfully!")
     print(f"- Final report saved in `{REPORT_FILE}`")

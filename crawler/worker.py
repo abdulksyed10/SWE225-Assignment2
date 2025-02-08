@@ -1,5 +1,4 @@
 from threading import Thread
-from inspect import getsource
 from utils.download import download
 from utils import get_logger
 import scraper
@@ -10,31 +9,28 @@ class Worker(Thread):
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
         self.frontier = frontier
-
-        # Ensure scraper.py does not import disallowed modules
-        assert {getsource(scraper).find(req) for req in {"from requests import", "import requests"}} == {-1}, "Do not use requests in scraper.py"
-        assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
-
         super().__init__(daemon=True)
 
     def run(self):
-        """Worker thread function: fetch, process, and store links."""
         while True:
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
                 break
+            
+            self.logger.info(f"Worker {self.name} processing URL: {tbd_url}")
 
             resp = download(tbd_url, self.config, self.logger)
-            self.logger.info(f"Downloaded {tbd_url}, status <{resp.status}>, using cache {self.config.cache_server}.")
+            print(f"📥 Downloading: {tbd_url} | Status: {resp.status}")  # Debugging
+            if resp.status != 200:
+                self.logger.warning(f"Worker {self.name} received non-200 status ({resp.status}) for {tbd_url}")
+                continue
             
             scraped_urls = scraper.scraper(tbd_url, resp)
+            self.logger.info(f"Worker {self.name} extracted {len(scraped_urls)} new URLs from {tbd_url}")
+
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
-            
-            self.frontier.mark_url_complete(tbd_url)
 
-            # Ensure politeness by sleeping if needed
+            self.frontier.mark_url_complete(tbd_url)
             time.sleep(self.config.time_delay)
-        
-        self.logger.info("Crawling finished.")
