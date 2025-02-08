@@ -1,131 +1,146 @@
-import html
 import re
-import json
+import os
 from urllib.parse import urlparse, urljoin, urldefrag
-from collections import defaultdict
+from bs4 import BeautifulSoup
+from collections import defaultdict, Counter
 
+# File paths
+STOPWORDS_FILE = "stopwords.txt"
+REPORT_FILE = "report.txt"
 
-unique_urls_file = "unique_urls.txt"
-page_word_count_file = "page_word_count.json"
-all_words_file = "all_words.txt"
-subdomains_and_pages_file = "subdomain_and_page_count.json"
-
+# Storage variables
 unique_urls = set()
-page_word_counts = {}
-subdomains = defaultdict(set)
+page_word_counts = {}  # {url: word_count}
+subdomains = defaultdict(set)  # {subdomain: set(urls)}
+word_frequencies = Counter()
 
+# Load stopwords from stopwords.txt
+def load_stopwords():
+    """Loads stopwords from stopwords.txt."""
+    stopwords = set()
+    if os.path.exists(STOPWORDS_FILE):
+        with open(STOPWORDS_FILE, "r", encoding="utf-8") as f:
+            stopwords = {line.strip().lower() for line in f if line.strip()}
+    return stopwords
+
+STOPWORDS = load_stopwords()
 
 def scraper(url, resp):
+    """Processes the page, extracts text, filters valid URLs, and tracks statistics."""
     try:
-        # Returning empty list of an status code is not 200
-        if resp.status != 200:
+        # Ignore responses with non-200 status or empty content
+        if resp.status != 200 or not resp.raw_response or not resp.raw_response.content:
             return []
-        
-        # Removing url fragments
+
+        # Remove URL fragment (e.g., #section1)
         url, _ = urldefrag(url)
+
+        # Ignore duplicate URLs (same URL different fragment)
         if url in unique_urls:
             return []
-        unique_urls.add(url) # adding unique links to the set
+        unique_urls.add(url)  # Store unique URL
 
-        # HTML content parsing using lxml
-        tree = html.fromstring(resp.raw_response.content)
+        # Parse HTML content using BeautifulSoup
+        soup = BeautifulSoup(resp.raw_response.content, "html.parser")
 
-        # Extracting just words
-        for element in tree.xpath("//script | //style | //noscript"):
-            element.getparent().remove(element)
-        
-        text = " ".join(tree.xpath("//body//text()"))
-        words = re.findall(r"\b[A-Za-z]{2,}\b", text)
+        # Remove scripts, styles, and noscript content
+        for script in soup(["script", "style", "noscript"]):  
+            script.extract()
 
-        # Getting the page count for the longest page in term so number of words (question 2)
-        page_word_counts[url] = len(words)
+        # Extract visible text
+        text = soup.get_text(separator=" ")
+        words = re.findall(r"\b[A-Za-z]{2,}\b", text.lower())  # Tokenize words
 
-        # Appending all words to all_words.txt to store words for processing in question 3
-        with open(all_words_file, "a", encoding="utf-8") as f:
-            f.write(" ".join(words) + " ")
-        
-        # Keeping track of the subdomains
+        # Filter out stopwords
+        filtered_words = [word for word in words if word not in STOPWORDS]
+        word_frequencies.update(filtered_words)  # Update word frequency counter
+
+        # Track page word count
+        page_word_counts[url] = len(filtered_words)
+
+        # Track subdomains under "ics.uci.edu"
         parsed_url = urlparse(url)
         if parsed_url.netloc.endswith("ics.uci.edu"):
             subdomains[parsed_url.netloc].add(url)
-        
-        links = extract_next_links(url, resp)
+
+        # Extract valid links from page
+        links = extract_next_links(url, soup)
         return [link for link in links if is_valid(link)]
 
     except Exception as e:
-        print(f"Error while running scrapper function: ", e)
+        print(f"Error in scraper: {e}")
         return []
 
-def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+def extract_next_links(url, soup):
+    """Extracts and normalizes links from a web page using BeautifulSoup."""
     try:
         links = set()
-        tree = html.fromstring(resp.raw_response.content)
-
-        for link in tree.xpath("//a/@href"):
-            full_url, _ = urldefrag(urljoin(url, link))
+        for link in soup.find_all("a", href=True):
+            full_url, _ = urldefrag(urljoin(url, link["href"]))  # Normalize and remove fragments
             links.add(full_url)
-        
+
         return list(links)
 
     except Exception as e:
-        print(f"Error while extracting links: ", e)
+        print(f"Error extracting links: {e}")
         return []
 
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
-    # If you decide to crawl it, return True; otherwise return False.
-    # There are already some conditions that return False.
+    """Ensures URL is within allowed domains and not a file type (e.g., PDF, images)."""
     try:
         parsed = urlparse(url)
-        if parsed.scheme not in set(["http", "https"]):
+        if parsed.scheme not in {"http", "https"}:
             return False
-        
-        # Only these are the allowed domains
-        allowed_domains = {"ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"}
-        if not parsed.netloc.endswith(tuple(allowed_domains)):
-            return False
-        
-        # Only for the today.uci.edu/department/information_computer_sciences/* (we are goig to ignore this path, prof. responded to a student on Ed Discussion as said to ignore it)
-        # if not parsed.netloc == "today.uci.edu" and parsed.path.startswith("/department/information_computer_sciences/"):
-        #     return False
 
-        return not re.match(
-            r".*\.(css|js|bmp|gif|jpe?g|ico"
-            + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
-            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
-            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
-            + r"|epub|dll|cnf|tgz|sha1"
-            + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+        # Allow only specified domains
+        allowed_domains = {"ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"}
+        if parsed.netloc not in allowed_domains and not parsed.netloc.endswith("ics.uci.edu"):
+            return False
+
+        # Ignore non-text file types
+        return not re.search(
+            r"\.(css|js|bmp|gif|jpe?g|ico|png|tiff?|mp2|mp3|mp4|wav|avi|mov|mpeg|pdf|"
+            r"doc|docx|xls|xlsx|zip|rar|gz|exe|tar|psd|dll|iso|ppt|pptx|txt|dat|cnf|xml)$",
+            parsed.path.lower()
+        )
 
     except TypeError:
-        print ("TypeError for ", parsed)
+        print(f"TypeError for {parsed}")
         raise
 
 def save_data():
-    with open(unique_urls_file, "w", encoding="utf-8") as f:
-        for url in unique_urls:
-            f.write(url + "\n")
-    
-    with open(page_word_count_file, "w", encoding="utf-8") as f:
-        json.dump(page_word_counts, f, indent=4)
-    
+    """Saves all crawl results in report.txt."""
+    # Find longest page
+    longest_page = max(page_word_counts, key=page_word_counts.get, default=None)
+    longest_page_info = {"url": longest_page, "word_count": page_word_counts.get(longest_page, 0)}
+
+    # Find 50 most common words
+    top_50_words = word_frequencies.most_common(50)
+
+    # Subdomain counts
     subdomain_counts = {subdomain: len(urls) for subdomain, urls in sorted(subdomains.items())}
-    with open(subdomains_and_pages_file, "w", encoding="utf-8") as f:
-        json.dump(subdomain_counts, f, indent=4)
-    
-    print("\nData saved successfully!")
-    print(f"- Unique URLs saved to `{unique_urls_file}` (TXT)")
-    print(f"- Page word counts saved to `{page_word_count_file}` (JSON)")
-    print(f"- Words saved to `{all_words_file}` (TXT)")
-    print(f"- Subdomains saved to `{subdomains_and_pages_file}` (JSON)")
+
+    # Write results to report.txt
+    with open(REPORT_FILE, "w", encoding="utf-8") as f:
+        f.write("=== Web Crawler Report ===\n\n")
+
+        # Unique pages count
+        f.write(f"1. Unique Pages Found: {len(unique_urls)}\n\n")
+
+        # Longest page
+        f.write(f"2. Longest Page:\n   URL: {longest_page}\n   Word Count: {longest_page_info['word_count']}\n\n")
+
+        # Most common words
+        f.write("3. 50 Most Common Words (excluding stopwords):\n")
+        for word, count in top_50_words:
+            f.write(f"   {word}: {count}\n")
+        f.write("\n")
+
+        # Subdomains found
+        f.write("4. Subdomains Found in ics.uci.edu:\n")
+        for subdomain, count in subdomain_counts.items():
+            f.write(f"   {subdomain}, {count}\n")
+
+    # Print summary
+    print("\nCrawl Data Saved Successfully!")
+    print(f"- Final report saved in `{REPORT_FILE}`")
