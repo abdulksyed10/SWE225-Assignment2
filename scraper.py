@@ -54,18 +54,16 @@ def scraper(url, resp):
         url, _ = urldefrag(url)
         parsed_url = urlparse(url)
 
-        # 🚨 **Prevent crawling duplicate query string variations**
+        # Prevent crawling the same page multiple times that leads from different query string variations
         normalized_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-        query_params = frozenset(parse_qs(parsed_url.query).items())  # Freeze query params for comparison
+        query_params = frozenset(parse_qs(parsed_url.query).items())
         if (normalized_url, query_params) in visited_urls:
-            print(f"⚠️ Skipping duplicate query variation: {url}")
             return []
         visited_urls.add((normalized_url, query_params))
 
-        # 🚨 **Prevent known cyclic URL patterns**
+        # Prevent known cyclic URL patterns
         for pattern in BLOCKED_PATTERNS:
             if re.search(pattern, url):
-                print(f"⚠️ Skipping loop-generating URL: {url}")
                 return []
 
         if url in unique_urls:
@@ -83,19 +81,18 @@ def scraper(url, resp):
         word_count = len(filtered_words)
         page_word_counts[url] = word_count
 
-        # 🚨 **Improved fuzzy deduplication to prevent redundant content loops**
+        # Avoiding duplicate pages by storing and checking content using hashes
         page_hash = hashlib.md5(text.encode()).hexdigest()
         if page_hash in visited_hashes:
-            print(f"⚠️ Skipping duplicate/similar page: {url}")
             return []
         visited_hashes[str(page_hash)] = url
-
+        
+        # Skipping low-content pages by measuring the word count in the page
         if word_count < 50:
-            print(f"⚠️ Skipping low-content page: {url}")
             return []
-
+        
+        # Skipping large file
         if len(resp.raw_response.content) > 2_000_000:
-            print(f"⚠️ Skipping large file: {url}")
             return []
 
         if parsed_url.netloc.endswith("ics.uci.edu"):
@@ -109,24 +106,23 @@ def scraper(url, resp):
         return [link for link in links if is_valid(link)]
 
     except Exception as e:
-        print(f"❌ Error in scraper: {e}")
+        print(f"Error in scraper: {e}")
         return []
 
 
 def extract_next_links(url, tree):
-    """Extracts and normalizes valid links from a page."""
+    # Extracts and normalizes valid links from a page.
     try:
         links = set()
         for link in tree.xpath("//a/@href"):
-            full_url, _ = urldefrag(urljoin(url, link))  # Normalize & remove fragments
-            # 🚨 **Skip event pages with dates in URLs**
+            full_url, _ = urldefrag(urljoin(url, link))  # Normalizing & removing fragments
+            # Skip event pages with dates in URLs
             if re.search(r"(\?|&)tribe-bar-date=\d{4}-\d{2}-\d{2}", full_url):
-                print(f"⚠️ Skipping looping event URL: {full_url}")
                 continue
             links.add(full_url)
         return list(links)
     except Exception as e:
-        print(f"❌ Error extracting links: {e}")
+        print(f"Error extracting links: {e}")
         return []
 
 
@@ -140,13 +136,11 @@ def is_valid(url):
         if parsed.netloc not in ALLOWED_DOMAINS and not parsed.netloc.endswith(tuple(ALLOWED_DOMAINS)):
             return False
 
-        # **Detecting Looping URLs** (common in calendars, events, Git history pages)
+        # Detecting Looping URLs like calendars
         if re.search(r"(\?|&)tribe-bar-date=\d{4}-\d{2}-\d{2}", url):  # ICS Calendar trap
-            print(f"⚠️ Skipping looping event URL: {url}")
             return False
 
         if re.search(r"(\?|&)(a=history|a=blobdiff|a=commit)", url):  # Git URL loops
-            print(f"⚠️ Skipping looping Git URL: {url}")
             return False
 
         return not re.match(
@@ -161,12 +155,12 @@ def is_valid(url):
             parsed.path.lower(),
         )
     except TypeError:
-        print(f"❌ TypeError for {parsed}")
+        print(f"TypeError for {parsed}")
         return False
 
 
 def save_data(append=False):
-    """Saves collected data to files for analysis."""
+    # Saves collected data to files for analysis
     mode = "a" if append else "w"
 
     with open(UNIQUE_URLS_FILE, mode, encoding="utf-8") as f:
@@ -182,4 +176,4 @@ def save_data(append=False):
     with open(SUBDOMAINS_FILE, "w", encoding="utf-8") as f:
         json.dump({subdomain: len(urls) for subdomain, urls in subdomains.items()}, f, indent=4)
 
-    print("\n✅ Data successfully saved!")
+    print("\nData successfully saved!")
