@@ -88,7 +88,7 @@ def scraper(url, resp):
         if page_hash in visited_hashes:
             print(f"⚠️ Skipping duplicate/similar page: {url}")
             return []
-        visited_hashes[page_hash] = url
+        visited_hashes[str(page_hash)] = url
 
         if word_count < 50:
             print(f"⚠️ Skipping low-content page: {url}")
@@ -119,6 +119,10 @@ def extract_next_links(url, tree):
         links = set()
         for link in tree.xpath("//a/@href"):
             full_url, _ = urldefrag(urljoin(url, link))  # Normalize & remove fragments
+            # 🚨 **Skip event pages with dates in URLs**
+            if re.search(r"(\?|&)tribe-bar-date=\d{4}-\d{2}-\d{2}", full_url):
+                print(f"⚠️ Skipping looping event URL: {full_url}")
+                continue
             links.add(full_url)
         return list(links)
     except Exception as e:
@@ -136,6 +140,15 @@ def is_valid(url):
         if parsed.netloc not in ALLOWED_DOMAINS and not parsed.netloc.endswith(tuple(ALLOWED_DOMAINS)):
             return False
 
+        # **Detecting Looping URLs** (common in calendars, events, Git history pages)
+        if re.search(r"(\?|&)tribe-bar-date=\d{4}-\d{2}-\d{2}", url):  # ICS Calendar trap
+            print(f"⚠️ Skipping looping event URL: {url}")
+            return False
+
+        if re.search(r"(\?|&)(a=history|a=blobdiff|a=commit)", url):  # Git URL loops
+            print(f"⚠️ Skipping looping Git URL: {url}")
+            return False
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -147,7 +160,6 @@ def is_valid(url):
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$",
             parsed.path.lower(),
         )
-
     except TypeError:
         print(f"❌ TypeError for {parsed}")
         return False
